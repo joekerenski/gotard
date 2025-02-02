@@ -3,5 +3,6 @@
 *.txt
 *.db
 *.sqlite3
+*.png
 main
 
