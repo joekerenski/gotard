@@ -8,35 +8,43 @@ import (
 	"encoding/json"
 	"log"
 	"time"
-	_"fmt"
+	"fmt"
 )
 
-// for now, stick with the dumbest solutions: add protected field
-// add param and check for that in "handle"
 type Router struct {
     mux *http.ServeMux
-    mwAuth func(http.Handler) http.Handler
-    protected bool `default: true`
-    tag string `default: "None"`
+    mwAuth func(http.HandlerFunc) http.HandlerFunc
+    protected bool
+    tag string
 }
 
-func NewRouter(middleware func(http.Handler) http.Handler, tag String) *Router {
+func NewRouter(middleware func(http.HandlerFunc) http.HandlerFunc, tag string) *Router {
     return &Router{
-        mux:        http.ServeMux(),
-        mwAuth:     middleware, 
+        mux:        http.NewServeMux(),
+        mwAuth:     middleware,
+        protected:  true,
         tag:        tag,
     }
 }
 
-// if route is not protected, no mwAUth please
-func (r *Router) Handle(method string, pattern string, handler http.Handler) {
-    r.mux.Handle(pattern, r.middleware(http.HandlerFunc(func(w http.ResponseWriter, req *Request) {
+func (r *Router) Handle(method string, pattern string, handler http.HandlerFunc) {
+    wrappedHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
         if req.Method != method {
-            http.Error(w, "Method not allowed, what are you doing?", http.StatusMethodNotAllowed)
+            http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
             return
         }
-        handler.ServeHTTP(w, req)
-    })))
+        handler(w, req)
+    })
+
+    if r.protected {
+        wrappedHandler = r.mwAuth(wrappedHandler)
+    }
+
+    r.mux.Handle(pattern, wrappedHandler)
+}
+
+func (r *Router) SetProtected(protected bool) {
+    r.protected = protected
 }
 
 func (r *Router)  ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -128,8 +136,11 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
             Expires:  time.Now().Add(1 * time.Minute),
         })
 
-        response := "Login successful!"
-        w.Write([]byte(response))
+        // response := "Login successful!"
+        // w.Write([]byte(response))
+        http.Redirect(w, r, "/home", http.StatusSeeOther)
+        return
+
     } else {
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
     }
@@ -157,18 +168,23 @@ func accountHandler(w http.ResponseWriter, r *http.Request) {
 
 func StartServer() {
     
-    apiRouter = NewRouter(JWTMiddleware)
+    mainMux := http.NewServeMux()
     
     fs := http.FileServer(http.Dir("./server/static"))
-    http.Handle("/static/", http.StripPrefix("/static/", fs))
-    http.HandleFunc("/", indexHandler)
-    http.HandleFunc("/home", auth.JWTMiddleware(homeHandler))
+    mainMux.Handle("/static/", http.StripPrefix("/static/", fs))
+    mainMux.HandleFunc("/", indexHandler)
+    mainMux.HandleFunc("/home", auth.JWTMiddleware(homeHandler))
 
+    apiRouter := NewRouter(auth.JWTMiddleware, "api")
+
+    apiRouter.SetProtected(false)
     apiRouter.Handle("POST", "/signup",  signupHandler)
-    apiRouter.Handle("POST", "/login",   loginHandler, false) // specify if protected via mwAuth
+    apiRouter.Handle("POST", "/login",   loginHandler)
+
+    apiRouter.SetProtected(true)
     apiRouter.Handle("GET",  "/account", accountHandler)
     
-    mainRouter = http.NewServeMux()
+    mainMux.Handle("/api/", http.StripPrefix("/api", apiRouter))
 
 	fmt.Println("Server is running on :8000")
 	if err := http.ListenAndServe(":8000", mainMux); err != nil {
