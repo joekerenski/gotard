@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+    "crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -14,8 +15,30 @@ import (
 // Password hashing using bcrypt
 const BCRYPT_COST int = 8
 const DefaultExpiration = 1 * time.Minute
+
+// TODO: replace with random strings
 var Pepper = []byte("lucy-is-a-good-kitty")
 var Secret = "lucy-is-a-good-cat"
+
+func GenUUID() (string, error) {
+    uuidBytes := make([]byte, 16)
+    _, err := rand.Read(uuidBytes)
+    if err != nil {
+        return "", err
+    }
+
+    uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x40
+    uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80
+
+    uuidStr := fmt.Sprintf("%x-%x-%x-%x-%x",
+        uuidBytes[0:4],
+        uuidBytes[4:6],
+        uuidBytes[6:8],
+        uuidBytes[8:10],
+        uuidBytes[10:16])
+
+    return uuidStr, nil
+}
 
 func HashPassword(password string) (string, error) {
 

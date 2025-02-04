@@ -1,6 +1,7 @@
 package db
 
 import (
+    "gotard/auth"
 	"database/sql"
 	"log"
 	"time"
@@ -34,15 +35,52 @@ func InitDB(ctx context.Context, dataSourceName string) error {
        return err
    }
 
-    return nil
+   err = _createSessionTable(ctx)
+   if err != nil {
+       log.Fatal("Error creating session table:", err)
+       return err
+   }
+   return nil
 }
 
 func _createUserTable(ctx context.Context) error {
 	tableSQL := `CREATE TABLE IF NOT EXISTS users (
-		email TEXT NOT NULL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+		email TEXT NOT NULL UNIQUE,
 	    username TEXT NOT NULL,
 	    created_at INTEGER NOT NULL,
-	    password TEXT NOT NULL
+	    password TEXT NOT NULL,
+        sub_tier SMALLINT DEFAULT 0
+	);`
+
+	tx, err := DB.BeginTx(ctx, nil)
+	if err != nil {
+        return err
+    }
+    defer tx.Rollback()
+
+    statement, err := tx.Prepare(tableSQL)
+    if err != nil {
+           return err
+    }
+    defer statement.Close()
+
+    _, err = statement.Exec()
+    if err != nil {
+        return err
+    }
+    return tx.Commit()
+}
+
+func _createSessionTable(ctx context.Context) error {
+	tableSQL := `CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        refresh_token TEXT NOT NULL,
+        login_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
 	);`
 
 	tx, err := DB.BeginTx(ctx, nil)
@@ -67,17 +105,19 @@ func _createUserTable(ctx context.Context) error {
 func InsertUser(ctx context.Context, email string, username string, password string) error {
 
 	query := `INSERT INTO users
-	(email, username, created_at, password) VALUES
-	(?, ?, ?, ?)`
+	(user_id, email, username, created_at, password, sub_tier) VALUES
+	(?, ?, ?, ?, ?, ?)`
 
 	createdAt := time.Now().Unix()
+    user_id, err := auth.GenUUID() 
+    sub_tier := 0
 
-	tx, err := DB.BeginTx(ctx, nil)
+    tx, err := DB.BeginTx(ctx, nil)
     if err != nil {
            return err
     }
 
-    _, err = tx.ExecContext(ctx, query, email, username, createdAt, password)
+    _, err = tx.ExecContext(ctx, query, user_id, email, username, createdAt, password, sub_tier)
     if err != nil {
         tx.Rollback()
         return err
