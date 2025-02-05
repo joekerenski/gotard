@@ -10,9 +10,10 @@ import (
 )
 
 type User struct {
+    Id          string
 	Email 		string
 	UserName 	string
-	CreatedAt 	int64
+	CreatedAt 	time.Time
 	Password 	string // hashed, of course
 }
 
@@ -49,7 +50,7 @@ func _createUserTable(ctx context.Context) error {
         user_id TEXT NOT NULL,
 		email TEXT NOT NULL UNIQUE,
 	    username TEXT NOT NULL,
-	    created_at INTEGER NOT NULL,
+	    created_at TIMESTAMP NOT NULL,
 	    password TEXT NOT NULL,
         sub_tier SMALLINT DEFAULT 0
 	);`
@@ -79,7 +80,10 @@ func _createSessionTable(ctx context.Context) error {
         user_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
         refresh_token TEXT NOT NULL,
-        login_at TEXT NOT NULL,
+        login_at TIMESTAMP NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        last_used TIMESTAMP NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
 	);`
 
@@ -109,9 +113,9 @@ func InsertUser(ctx context.Context, email string, username string, password str
 	(?, ?, ?, ?, ?, ?)`
 
 	createdAt := time.Now().Unix()
-    user_id, err := auth.GenUUID() 
+    user_id, err := auth.GenUUID()
     sub_tier := 0
-
+    
     tx, err := DB.BeginTx(ctx, nil)
     if err != nil {
            return err
@@ -120,6 +124,7 @@ func InsertUser(ctx context.Context, email string, username string, password str
     _, err = tx.ExecContext(ctx, query, user_id, email, username, createdAt, password, sub_tier)
     if err != nil {
         tx.Rollback()
+        log.Printf("Error executing transaction: %v", err)
         return err
     }
     return tx.Commit()
@@ -127,7 +132,7 @@ func InsertUser(ctx context.Context, email string, username string, password str
 
 func GetUserByEmail(email string) (*User, error) {
 
-	stmt, err := DB.Prepare("SELECT * FROM users WHERE email = ?")
+	stmt, err := DB.Prepare("SELECT user_id, email, username, created_at, password FROM users WHERE email = ?")
     if err != nil {
         return nil, err
     }
@@ -135,13 +140,48 @@ func GetUserByEmail(email string) (*User, error) {
 
     var user User
 
-    err = stmt.QueryRow(email).Scan(&user.Email, &user.UserName, &user.CreatedAt, &user.Password)
+    err = stmt.QueryRow(email).Scan(&user.Id, &user.Email, &user.UserName, &user.CreatedAt, &user.Password)
     if err != nil {
         if err == sql.ErrNoRows {
             return nil, nil
         }
         return nil, err
     }
-
     return &user, nil
+}
+
+func InsertNewSession(ctx context.Context, user_id string) error {
+
+        // id INTEGER PRIMARY KEY AUTOINCREMENT,
+        // user_id TEXT NOT NULL,
+        // session_id TEXT NOT NULL,
+        // refresh_token TEXT NOT NULL,
+        // login_at TIMESTAMP NOT NULL,
+        // expires_at TIMESTAMP NOT NULL,
+        // last_used TIMESTAMP NOT NULL,
+        // is_active BOOLEAN DEFAULT TRUE,
+        // FOREIGN KEY (user_id) REFERENCES users (user_id)
+
+    sessionStr, err := auth.CreateSessionID()
+    refresh, err := auth.CreateRefreshToken(sessionStr, auth.RefreshSecret)
+ 
+    now := time.Now()
+    expires_at := now.Add(24 * time.Hour)
+
+	query := `INSERT INTO sessions
+	(user_id, session_id, refresh_token, login_at, expires_at, last_used) VALUES
+	(?, ?, ?, ?, ?, ?)`
+
+    tx, err := DB.BeginTx(ctx, nil)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback()
+
+    _, err = tx.ExecContext(ctx, query, user_id, sessionStr, refresh, now, expires_at, now)
+    if err != nil {
+        log.Printf("Error executing transaction: %v", err)
+        return err
+    }
+    return tx.Commit()
 }

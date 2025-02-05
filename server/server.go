@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"encoding/json"
+    "os"
 	"log"
 	"time"
 	"fmt"
@@ -14,17 +15,33 @@ import (
 type Router struct {
     mux *http.ServeMux
     mwAuth func(http.HandlerFunc) http.HandlerFunc
-    protected bool
+    mwExtra []func(http.HandlerFunc) http.HandlerFunc
     tag string
+    protected bool
+    logger *log.Logger
 }
 
-func NewRouter(middleware func(http.HandlerFunc) http.HandlerFunc, tag string) *Router {
+func NewRouter(tag string) *Router {
     return &Router{
         mux:        http.NewServeMux(),
-        mwAuth:     middleware,
-        protected:  true,
+        mwAuth:     nil,
+        mwExtra:    []func(http.HandlerFunc) http.HandlerFunc{},
         tag:        tag,
+        protected:  true,
+        logger:     log.New(os.Stdout, "["+tag+"] ", log.LstdFlags),
     }
+}
+
+func(r *Router) Use(middleware func(http.HandlerFunc) http.HandlerFunc) {
+    r.mwExtra = append(r.mwExtra, middleware)
+}
+
+func(r *Router) UseAuth(mwAuth func(http.HandlerFunc) http.HandlerFunc) {
+    r.mwAuth = mwAuth 
+}
+
+func (r *Router) SetProtected(protected bool) {
+    r.protected = protected
 }
 
 func (r *Router) Handle(method string, pattern string, handler http.HandlerFunc) {
@@ -35,19 +52,20 @@ func (r *Router) Handle(method string, pattern string, handler http.HandlerFunc)
         }
         handler(w, req)
     })
-
-    if r.protected {
+    
+    if r.mwAuth != nil && r.protected {
         wrappedHandler = r.mwAuth(wrappedHandler)
+    }
+
+    for i := len(r.mwExtra) -1; i >= 0; i-- {
+        wrappedHandler = r.mwExtra[i](wrappedHandler)
     }
 
     r.mux.Handle(pattern, wrappedHandler)
 }
 
-func (r *Router) SetProtected(protected bool) {
-    r.protected = protected
-}
-
 func (r *Router)  ServeHTTP(w http.ResponseWriter, req *http.Request) {
+    r.logger.Printf("%s %s", req.Method, req.URL.Path)
     r.mux.ServeHTTP(w, req)
 }
 
@@ -103,6 +121,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
         user, err := db.GetUserByEmail(email)
         if err != nil {
+            log.Printf("Error executing transaction: %v", err)
             http.Error(w, "Error retrieving user", http.StatusInternalServerError)
             return
         }
@@ -135,11 +154,16 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
             MaxAge:   3600,
             Expires:  time.Now().Add(1 * time.Minute),
         })
+    
+        ctx := context.Background()
+        err = db.InsertNewSession(ctx, user.Id)
+        if err != nil {
+            http.Error(w, "Error creating a session!", http.StatusInternalServerError)
+            return
+        }
 
-        // response := "Login successful!"
-        // w.Write([]byte(response))
-        http.Redirect(w, r, "/home", http.StatusSeeOther)
-        return
+        response := "Login successful!"
+        w.Write([]byte(response))
 
     } else {
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -148,7 +172,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func accountHandler(w http.ResponseWriter, r *http.Request) {
     userEmail := r.Context().Value("userEmail").(string)
-
+    
     userData, err := db.GetUserByEmail(userEmail)
     if err != nil {
 	    http.Error(w, "Error retrieving user data!", http.StatusInternalServerError)
@@ -175,9 +199,10 @@ func StartServer() {
     mainMux.HandleFunc("/", indexHandler)
     mainMux.HandleFunc("/home", auth.JWTMiddleware(homeHandler))
 
-    apiRouter := NewRouter(auth.JWTMiddleware, "api")
+    apiRouter := NewRouter("api")
 
     apiRouter.SetProtected(false)
+    apiRouter.UseAuth(auth.JWTMiddleware)
     apiRouter.Handle("POST", "/signup",  signupHandler)
     apiRouter.Handle("POST", "/login",   loginHandler)
 

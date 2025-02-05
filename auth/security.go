@@ -14,11 +14,13 @@ import (
 
 // Password hashing using bcrypt
 const BCRYPT_COST int = 8
-const DefaultExpiration = 1 * time.Minute
+const DefaultExpirationJWT = 5 * time.Minute
+const DefaultExpirationRefresh = 24 * time.Hour
 
 // TODO: replace with random strings
 var Pepper = []byte("lucy-is-a-good-kitty")
 var Secret = "lucy-is-a-good-cat"
+var RefreshSecret = []byte("lucy-is-naughty-sometimes")
 
 func GenUUID() (string, error) {
     uuidBytes := make([]byte, 16)
@@ -38,6 +40,16 @@ func GenUUID() (string, error) {
         uuidBytes[10:16])
 
     return uuidStr, nil
+}
+
+func CreateSessionID() (string, error) {
+    sessionBytes := make([]byte, 16)
+    _, err := rand.Read(sessionBytes)
+    if err != nil {
+        return "", err
+    }
+    sessionStr := fmt.Sprintf("%x", sessionBytes)
+    return sessionStr, nil
 }
 
 func HashPassword(password string) (string, error) {
@@ -73,12 +85,74 @@ type Payload struct {
 	Exp int64	`json:"exp"`
 }
 
+type RefreshToken struct {
+    SessionID string `json:"sid"`
+    ExpiresAt int64  `json:"exp"`
+}
+
 func NewPayload(sub string) Payload {
 	return Payload{
 		Sub: sub,
 		Iat: time.Now().Unix(),
-		Exp: time.Now().Add(DefaultExpiration).Unix(),
+		Exp: time.Now().Add(DefaultExpirationRefresh).Unix(),
 	}
+}
+
+func CreateRefreshToken(sessionID string, secret []byte) (string, error) {
+    refreshToken := &RefreshToken{
+        SessionID: sessionID,
+        ExpiresAt: time.Now().Add(DefaultExpirationRefresh).Unix(),
+    }
+
+    tokenJSON, err := json.Marshal(refreshToken)
+    if err != nil {
+        return "", err
+    }
+
+    h := hmac.New(sha256.New, secret)
+    h.Write(tokenJSON)
+    signature := h.Sum(nil)
+
+    tokenBase64 := base64.RawURLEncoding.EncodeToString(tokenJSON)
+    signatureBase64 := base64.RawURLEncoding.EncodeToString(signature)
+
+    return fmt.Sprintf("%s.%s", tokenBase64, signatureBase64), nil
+}
+
+func VerifyRefreshToken(token string, secret []byte) (*RefreshToken, error) {
+    parts := strings.Split(token, ".")
+    if len(parts) != 2 {
+        return nil, fmt.Errorf("invalid token format")
+    }
+
+    tokenJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
+    if err != nil {
+        return nil, err
+    }
+
+    signature, err := base64.RawURLEncoding.DecodeString(parts[1])
+    if err != nil {
+        return nil, err
+    }
+
+    h := hmac.New(sha256.New, secret)
+    h.Write(tokenJSON)
+    expectedSignature := h.Sum(nil)
+
+    if !hmac.Equal(signature, expectedSignature) {
+        return nil, fmt.Errorf("invalid signature")
+    }
+
+    var refreshToken RefreshToken
+    if err := json.Unmarshal(tokenJSON, &refreshToken); err != nil {
+        return nil, err
+    }
+
+    if time.Now().Unix() > refreshToken.ExpiresAt {
+        return nil, fmt.Errorf("token expired")
+    }
+
+    return &refreshToken, nil
 }
 
 func ToJSON(data any) (string, error) {
