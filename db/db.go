@@ -10,11 +10,29 @@ import (
 )
 
 type User struct {
-    Id          string
-	Email 		string
-	UserName 	string
-	CreatedAt 	time.Time
-	Password 	string // hashed, of course
+    ID            string    `json:"id"`
+    Email         string    `json:"email"`
+    UserName      string    `json:"username"`
+    CreatedAt     time.Time `json:"created_at"`
+    Password      string    `json:"-"`
+    SubTier       int       `json:"sub_tier"`
+    LastLoginAt   time.Time `json:"last_login_at"`
+    IsActive      bool      `json:"is_active"`
+    Role          string    `json:"role"`  // admin, authenticated, unchecked
+    EmailVerified bool      `json:"email_verified"`
+}
+
+type Session struct {
+    ID           string    `json:"id"`
+    UserID       string    `json:"user_id"`
+    SessionID    string    `json:"session_id"`
+    RefreshToken string    `json:"-"`
+    LoginAt      time.Time `json:"login_at"`
+    ExpiresAt    time.Time `json:"expires_at"`
+    LastUsedAt   time.Time `json:"last_used_at"`
+    IsActive     bool      `json:"is_active"`
+    UserAgent    string    `json:"user_agent"`
+    IPAddress    string    `json:"ip_address"`
 }
 
 var DB *sql.DB
@@ -82,7 +100,7 @@ func _createSessionTable(ctx context.Context) error {
         refresh_token TEXT NOT NULL,
         login_at TIMESTAMP NOT NULL,
         expires_at TIMESTAMP NOT NULL,
-        last_used TIMESTAMP NOT NULL,
+        last_used_at TIMESTAMP NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
         FOREIGN KEY (user_id) REFERENCES users (user_id)
 	);`
@@ -152,16 +170,6 @@ func GetUserByEmail(email string) (*User, error) {
 
 func InsertNewSession(ctx context.Context, user_id string) error {
 
-        // id INTEGER PRIMARY KEY AUTOINCREMENT,
-        // user_id TEXT NOT NULL,
-        // session_id TEXT NOT NULL,
-        // refresh_token TEXT NOT NULL,
-        // login_at TIMESTAMP NOT NULL,
-        // expires_at TIMESTAMP NOT NULL,
-        // last_used TIMESTAMP NOT NULL,
-        // is_active BOOLEAN DEFAULT TRUE,
-        // FOREIGN KEY (user_id) REFERENCES users (user_id)
-
     sessionStr, err := auth.CreateSessionID()
     refresh, err := auth.CreateRefreshToken(sessionStr, auth.RefreshSecret)
  
@@ -169,7 +177,7 @@ func InsertNewSession(ctx context.Context, user_id string) error {
     expires_at := now.Add(24 * time.Hour)
 
 	query := `INSERT INTO sessions
-	(user_id, session_id, refresh_token, login_at, expires_at, last_used) VALUES
+	(user_id, session_id, refresh_token, login_at, expires_at, last_used_at) VALUES
 	(?, ?, ?, ?, ?, ?)`
 
     tx, err := DB.BeginTx(ctx, nil)
