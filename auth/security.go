@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/hmac"
 	"crypto/sha256"
-    "crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -22,35 +21,7 @@ var Pepper = []byte("lucy-is-a-good-kitty")
 var Secret = "lucy-is-a-good-cat"
 var RefreshSecret = []byte("lucy-is-naughty-sometimes")
 
-func GenUUID() (string, error) {
-    uuidBytes := make([]byte, 16)
-    _, err := rand.Read(uuidBytes)
-    if err != nil {
-        return "", err
-    }
 
-    uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x40
-    uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80
-
-    uuidStr := fmt.Sprintf("%x-%x-%x-%x-%x",
-        uuidBytes[0:4],
-        uuidBytes[4:6],
-        uuidBytes[6:8],
-        uuidBytes[8:10],
-        uuidBytes[10:16])
-
-    return uuidStr, nil
-}
-
-func CreateSessionID() (string, error) {
-    sessionBytes := make([]byte, 16)
-    _, err := rand.Read(sessionBytes)
-    if err != nil {
-        return "", err
-    }
-    sessionStr := fmt.Sprintf("%x", sessionBytes)
-    return sessionStr, nil
-}
 
 func HashPassword(password string) (string, error) {
 
@@ -221,3 +192,6 @@ func VerifyPayload(secret, token string) (*Payload, error) {
     }
     return &payloadData, nil
 }
+
+
+

@@ -115,11 +115,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
             return
 	    }
 
+        // use both mail and username to be unique
 		email := r.FormValue("email")
-        //username := r.FormValue("username")
+        // username := r.FormValue("username")
         password := r.FormValue("password")
 
-        user, err := db.GetUserByEmail(email)
+        // fix this: get user via email, create jwt with user_id
+        user, err := db.GetUserById(email)
         if err != nil {
             log.Printf("Error executing transaction: %v", err)
             http.Error(w, "Error retrieving user", http.StatusInternalServerError)
@@ -136,14 +138,15 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	        return
         }
 
-        payload := auth.NewPayload(email)
+        // session := CreateNewSession(user.Id)
+
+        payload := auth.NewPayload(user.Id)
         token, err := auth.SignPayload(auth.Secret, payload)
         if err != nil {
             http.Error(w, "Error signing token", http.StatusInternalServerError)
             return
         }
     
-        // TODO: how do we define a refresh token? and then define a session struct?
         http.SetCookie(w, &http.Cookie{
             Name:     "AuthToken",
             Value:    token,
@@ -155,12 +158,26 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
             Expires:  time.Now().Add(1 * time.Minute),
         })
     
+        sessionStr, err := db.CreateSessionID()
+        refresh, err := auth.CreateRefreshToken(sessionStr, auth.RefreshSecret)
+
         ctx := context.Background()
-        err = db.InsertNewSession(ctx, user.Id)
+        _,  err = db.InsertNewSession(ctx, user.Id, refresh, sessionStr)
         if err != nil {
             http.Error(w, "Error creating a session!", http.StatusInternalServerError)
             return
         }
+
+        http.SetCookie(w, &http.Cookie{
+            Name:     "RefreshToken",
+            Value:    refresh,
+            Path:     "/",
+            HttpOnly: true,
+            Secure:   true,
+            SameSite: http.SameSiteStrictMode,
+            MaxAge:   3600,
+            Expires:  time.Now().Add(24 * time.Hour),
+        })
 
         response := "Login successful!"
         w.Write([]byte(response))
@@ -171,9 +188,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func accountHandler(w http.ResponseWriter, r *http.Request) {
-    userEmail := r.Context().Value("userEmail").(string)
+    user_id := r.Context().Value("userId").(string)
     
-    userData, err := db.GetUserByEmail(userEmail)
+    userData, err := db.GetUserById(user_id)
     if err != nil {
 	    http.Error(w, "Error retrieving user data!", http.StatusInternalServerError)
 		log.Printf("ERROR occurred: %s", err)

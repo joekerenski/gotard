@@ -1,4 +1,4 @@
-package main
+package maion
 
 import (
 	"gotard/db"
@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-var ctx = context.Background()
+var ctx = context.Background() // set app lifecyle here
 
 func main() {
 

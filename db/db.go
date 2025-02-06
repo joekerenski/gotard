@@ -1,8 +1,9 @@
 package db
 
 import (
-    "gotard/auth"
 	"database/sql"
+    "crypto/rand"
+    "fmt"
 	"log"
 	"time"
 	"context"
@@ -10,7 +11,7 @@ import (
 )
 
 type User struct {
-    ID            string    `json:"id"`
+    Id            string    `json:"id"`
     Email         string    `json:"email"`
     UserName      string    `json:"username"`
     CreatedAt     time.Time `json:"created_at"`
@@ -18,12 +19,12 @@ type User struct {
     SubTier       int       `json:"sub_tier"`
     LastLoginAt   time.Time `json:"last_login_at"`
     IsActive      bool      `json:"is_active"`
-    Role          string    `json:"role"`  // admin, authenticated, unchecked
+    Role          string    `json:"role"`  // admin, authenticated, anon
     EmailVerified bool      `json:"email_verified"`
 }
 
 type Session struct {
-    ID           string    `json:"id"`
+    Id           string    `json:"id"`
     UserID       string    `json:"user_id"`
     SessionID    string    `json:"session_id"`
     RefreshToken string    `json:"-"`
@@ -36,6 +37,37 @@ type Session struct {
 }
 
 var DB *sql.DB
+
+// move to helpers.go later
+func GenUUID() (string, error) {
+    uuidBytes := make([]byte, 16)
+    _, err := rand.Read(uuidBytes)
+    if err != nil {
+        return "", err
+    }
+
+    uuidBytes[6] = (uuidBytes[6] & 0x0f) | 0x40
+    uuidBytes[8] = (uuidBytes[8] & 0x3f) | 0x80
+
+    uuidStr := fmt.Sprintf("%x-%x-%x-%x-%x",
+        uuidBytes[0:4],
+        uuidBytes[4:6],
+        uuidBytes[6:8],
+        uuidBytes[8:10],
+        uuidBytes[10:16])
+
+    return uuidStr, nil
+}
+
+func CreateSessionID() (string, error) {
+    sessionBytes := make([]byte, 16)
+    _, err := rand.Read(sessionBytes)
+    if err != nil {
+        return "", err
+    }
+    sessionStr := fmt.Sprintf("%x", sessionBytes)
+    return sessionStr, nil
+}
 
 func InitDB(ctx context.Context, dataSourceName string) error {
 
@@ -131,7 +163,7 @@ func InsertUser(ctx context.Context, email string, username string, password str
 	(?, ?, ?, ?, ?, ?)`
 
 	createdAt := time.Now().Unix()
-    user_id, err := auth.GenUUID()
+    user_id, err := GenUUID()
     sub_tier := 0
     
     tx, err := DB.BeginTx(ctx, nil)
@@ -148,9 +180,9 @@ func InsertUser(ctx context.Context, email string, username string, password str
     return tx.Commit()
 }
 
-func GetUserByEmail(email string) (*User, error) {
+func GetUserById(user_id string) (*User, error) {
 
-	stmt, err := DB.Prepare("SELECT user_id, email, username, created_at, password FROM users WHERE email = ?")
+	stmt, err := DB.Prepare("SELECT user_id, email, username, created_at, password FROM users WHERE user_id = ?")
     if err != nil {
         return nil, err
     }
@@ -158,7 +190,7 @@ func GetUserByEmail(email string) (*User, error) {
 
     var user User
 
-    err = stmt.QueryRow(email).Scan(&user.Id, &user.Email, &user.UserName, &user.CreatedAt, &user.Password)
+    err = stmt.QueryRow(user_id).Scan(&user.Id, &user.Email, &user.UserName, &user.CreatedAt, &user.Password)
     if err != nil {
         if err == sql.ErrNoRows {
             return nil, nil
@@ -168,11 +200,8 @@ func GetUserByEmail(email string) (*User, error) {
     return &user, nil
 }
 
-func InsertNewSession(ctx context.Context, user_id string) error {
-
-    sessionStr, err := auth.CreateSessionID()
-    refresh, err := auth.CreateRefreshToken(sessionStr, auth.RefreshSecret)
- 
+func InsertNewSession(ctx context.Context, user_id string, refresh string, sessionStr string) (string, error) {
+    
     now := time.Now()
     expires_at := now.Add(24 * time.Hour)
 
@@ -182,14 +211,15 @@ func InsertNewSession(ctx context.Context, user_id string) error {
 
     tx, err := DB.BeginTx(ctx, nil)
     if err != nil {
-        return err
+        return "", err
     }
     defer tx.Rollback()
 
     _, err = tx.ExecContext(ctx, query, user_id, sessionStr, refresh, now, expires_at, now)
     if err != nil {
         log.Printf("Error executing transaction: %v", err)
-        return err
+        return "", err
     }
-    return tx.Commit()
+    return refresh, tx.Commit()
 }
+
