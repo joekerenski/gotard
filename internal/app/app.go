@@ -1,16 +1,27 @@
 package app
 
+import (
+    "gotard/internal/api"
+    "database/sql"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
+    "context"
+    "net/http"
+)
+
 type App struct {
     Name    string
     Port    string
     Context context.Context 
     Cancel  context.CancelFunc 
     DB      *sql.DB
-    Mux     *http.ServeMux 
-    Middlewares []func(http.Handler) http.Handler // logger, cors
+    MainMux *http.ServeMux
+    Routers []*api.Router
+    Middlewares []func(http.Handler) http.Handler
 }
 
-// TODO: old version, make it work with my routers!!!!
 func NewApp(name string, port string) *App {
     ctx, cancel := context.WithCancel(context.Background())
     return &App{
@@ -18,14 +29,16 @@ func NewApp(name string, port string) *App {
         Port:    port,
         Context: ctx,
         Cancel:  cancel,
-        Mux:     http.NewServeMux(),
+        DB:      nil,
+        MainMux: http.NewServeMux(),
+        Routers: []*api.Router{},
         Middlewares: []func(http.Handler) http.Handler{},
     }
 }
 
-// TODO: change include!!!
-func (app *App) Include(handler http.Handler) {
-    app.Mux.Handle("/", handler)
+func (app *App) Include(router *api.Router, prefix string) {
+    app.Routers = append(app.Routers, router)
+    app.MainMux.Handle(prefix+"/", http.StripPrefix(prefix, router))
 }
 
 func (app *App) AddMiddleware(middleware func(http.Handler) http.Handler) {
@@ -42,7 +55,7 @@ func (app *App) _applyMiddlewares(handler http.Handler) http.Handler {
 func (app *App) Run() {
     server := &http.Server{
         Addr:       ":" + app.Port,
-        Handler:    app._applyMiddlewares(app.Mux)
+        Handler:    app._applyMiddlewares(app.MainMux),
     }
 
     signalChan := make(chan os.Signal, 1)
@@ -53,7 +66,7 @@ func (app *App) Run() {
         log.Printf("Received signal: %s. Shutting down. Rip '%s' ... \n", sig, app.Name)
         app.Cancel()
         server.Shutdown(context.Background())
-    }
+    }()
 
     log.Printf("%s is running on port %s\n", app.Name, app.Port)
     if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

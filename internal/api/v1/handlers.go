@@ -1,20 +1,24 @@
 package v1
 
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-    http.ServeFile(w, r, "./server/static/index.html")
+import (
+    "gotard/internal/auth"
+    "gotard/internal/db"
+    "time"
+    "encoding/json"
+    "log"
+    "context"
+    "net/http"
+)
+
+func IndexHandler(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, "./static/index.html")
 }
 
-func homeHandler(w http.ResponseWriter, r *http.Request) {
-    http.ServeFile(w, r, "./server/static/home.html")
+func HomeHandler(w http.ResponseWriter, r *http.Request) {
+    http.ServeFile(w, r, "./static/home.html")
 }
 
-func signupHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-	  	if err := r.ParseMultipartForm(1 << 20); err != nil {
-            http.Error(w, "Unable to parse form", http.StatusBadRequest)
-            return
-	    }
-
+func SignupHandler(w http.ResponseWriter, r *http.Request) {
 		email := r.FormValue("email")
         username := r.FormValue("username")
         password := r.FormValue("password")
@@ -33,19 +37,9 @@ func signupHandler(w http.ResponseWriter, r *http.Request) {
 
         response := "User registered successfully!"
         w.Write([]byte(response))
-    } else {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-    }
 }
 
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-
-	if r.Method == http.MethodPost {
-	  	if err := r.ParseMultipartForm(1 << 20); err != nil {
-            http.Error(w, "Unable to parse form", http.StatusBadRequest)
-            return
-	    }
-
+func LoginHandler(w http.ResponseWriter, r *http.Request) {
         // use both mail and username to be unique
 		email := r.FormValue("email")
         // username := r.FormValue("username")
@@ -112,13 +106,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
         response := "Login successful!"
         w.Write([]byte(response))
-
-    } else {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-    }
 }
 
-func accountHandler(w http.ResponseWriter, r *http.Request) {
+func AccountHandler(w http.ResponseWriter, r *http.Request) {
     user_id := r.Context().Value("userId").(string)
     
     userData, err := db.GetUserById(user_id)
