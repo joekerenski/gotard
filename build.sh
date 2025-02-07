@@ -2,4 +2,4 @@
 
 set -xe
 
-time go build main.go
+time go build entry.go
