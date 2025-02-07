@@ -36,7 +36,6 @@ type Session struct {
     IPAddress    string    `json:"ip_address"`
 }
 
-var DB *sql.DB
 
 // move to helpers.go later
 func GenUUID() (string, error) {
@@ -69,32 +68,35 @@ func CreateSessionID() (string, error) {
     return sessionStr, nil
 }
 
-func InitDB(ctx context.Context, dataSourceName string) error {
-
+func InitDB(ctx context.Context, database string) (*sql.DB, error) {
+    
+    // also configure a proper connection pool here 
+    // and handle via goroutines?
+    var DB *sql.DB
 	var err error
-	DB, err = sql.Open("sqlite3", dataSourceName)
+	DB, err = sql.Open("sqlite3", database)
 	if err != nil {
-        return err
+        return nil, err
     }
     if err = DB.Ping(); err != nil {
-        return err
+        return nil, err
     }
 
-   err = _createUserTable(ctx)
+   err = _createUserTable(ctx, DB)
    if err != nil {
        log.Fatal("Error creating user table:", err)
-       return err
+       return nil, err
    }
 
-   err = _createSessionTable(ctx)
+   err = _createSessionTable(ctx, DB)
    if err != nil {
        log.Fatal("Error creating session table:", err)
-       return err
+       return nil, err
    }
-   return nil
+   return DB, nil
 }
 
-func _createUserTable(ctx context.Context) error {
+func _createUserTable(ctx context.Context, DB *sql.DB) error {
 	tableSQL := `CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -124,7 +126,7 @@ func _createUserTable(ctx context.Context) error {
     return tx.Commit()
 }
 
-func _createSessionTable(ctx context.Context) error {
+func _createSessionTable(ctx context.Context, DB *sql.DB) error {
 	tableSQL := `CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -156,7 +158,7 @@ func _createSessionTable(ctx context.Context) error {
     return tx.Commit()
 }
 
-func InsertUser(ctx context.Context, email string, username string, password string) error {
+func InsertUser(ctx context.Context, email string, username string, password string, DB *sql.DB) error {
 
 	query := `INSERT INTO users
 	(user_id, email, username, created_at, password, sub_tier) VALUES
@@ -180,7 +182,7 @@ func InsertUser(ctx context.Context, email string, username string, password str
     return tx.Commit()
 }
 
-func GetUserById(user_id string) (*User, error) {
+func GetUserById(user_id string, DB *sql.DB) (*User, error) {
 
 	stmt, err := DB.Prepare("SELECT user_id, email, username, created_at, password FROM users WHERE user_id = ?")
     if err != nil {
@@ -200,7 +202,7 @@ func GetUserById(user_id string) (*User, error) {
     return &user, nil
 }
 
-func InsertNewSession(ctx context.Context, user_id string, refresh string, sessionStr string) (string, error) {
+func InsertNewSession(ctx context.Context, user_id string, refresh string, sessionStr string, DB *sql.DB) (string, error) {
     
     now := time.Now()
     expires_at := now.Add(24 * time.Hour)

@@ -2,10 +2,13 @@ package app
 
 import (
     "gotard/internal/api"
+    "gotard/internal/config"
+    "gotard/internal/db"
     "database/sql"
     "log"
     "os"
     "os/signal"
+    "strconv"
     "syscall"
     "context"
     "net/http"
@@ -14,19 +17,23 @@ import (
 type App struct {
     Name    string
     Port    string
+    Debug   bool 
+    Config  bool
     Context context.Context 
     Cancel  context.CancelFunc 
     DB      *sql.DB
-    MainMux *http.ServeMux
+    MainMux *http.ServeMux  // maybe make this a proper file server?
     Routers []*api.Router
     Middlewares []func(http.Handler) http.Handler
 }
 
 func NewApp(name string, port string) *App {
-    ctx, cancel := context.WithCancel(context.Background())
+    ctx, cancel := context.WithCancel(context.Background()) // research better what this means
     return &App{
         Name:    name,
         Port:    port,
+        Debug:   false,
+        Config:  false,
         Context: ctx,
         Cancel:  cancel,
         DB:      nil,
@@ -57,6 +64,27 @@ func (app *App) Run() {
         Addr:       ":" + app.Port,
         Handler:    app._applyMiddlewares(app.MainMux),
     }
+    
+    if app.Config {
+        _ = config.LoadEnv("./local.env") 
+        app.Name = config.GetEnv("APP_NAME", "Retardo")
+        app.Port = config.GetEnv("APP_PORT", "6969")
+        app.Debug, _ = strconv.ParseBool(config.GetEnv("DEBUG", "false"))
+    }
+
+    if app.Debug {
+        config, _ := config.DumpConfigAsJSON("./local.env") 
+        log.Println("[DEBUG]: Loaded config.")
+        log.Printf("[DEBUG]: Current configuration:\n%s", config)
+    }
+
+    db, err := db.InitDB(config.GetEnv("DB_NAME", "users.db"))
+    if err != nil {
+        log.Fatalf("Failed to initialize database: %v", err)
+    }
+    defer db.Close()
+
+    app.Context = context.WithValue(app.Context, "DB", db)
 
     signalChan := make(chan os.Signal, 1)
     signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)

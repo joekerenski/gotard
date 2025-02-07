@@ -24,7 +24,7 @@ func main() {
     app.MainMux.HandleFunc("/", v1.IndexHandler)
     app.MainMux.HandleFunc("/home", auth.JWTMiddleware(v1.HomeHandler))
 
-    apiRouter := api.NewRouter("Api")
+    apiRouter := api.NewRouter("API")
 
     apiRouter.SetProtected(false)
     apiRouter.UseAuth(auth.JWTMiddleware)
@@ -39,6 +39,7 @@ func main() {
     app.Include(apiRouter, "/api")
     app.AddMiddleware(loggingMiddleware)
     app.MainMux.Handle("/static/", http.StripPrefix("/static/", fs))
+    app.Config = true
     app.Run()
 }
 
