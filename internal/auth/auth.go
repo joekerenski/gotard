@@ -5,6 +5,7 @@ import (
 	"context"
 )
 
+// TODO: also check refresh token if expired, and issue new jwt
 func JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         cookie, err := r.Cookie("AuthToken")

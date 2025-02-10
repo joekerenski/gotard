@@ -16,12 +16,10 @@ const BCRYPT_COST int = 8
 const DefaultExpirationJWT = 5 * time.Minute
 const DefaultExpirationRefresh = 24 * time.Hour
 
-// TODO: replace with random strings
+// TODO: replace with random 16-byte strings
 var Pepper = []byte("lucy-is-a-good-kitty")
 var Secret = "lucy-is-a-good-cat"
 var RefreshSecret = []byte("lucy-is-naughty-sometimes")
-
-
 
 func HashPassword(password string) (string, error) {
 
@@ -156,7 +154,7 @@ func SignPayload(secret string, payload Payload) (string, error) {
     return jwt, nil
 }
 
-// TODO: here I can also implement a refresh token?
+// TODO: should return a TokenExpired custom error?
 func VerifyPayload(secret, token string) (*Payload, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {

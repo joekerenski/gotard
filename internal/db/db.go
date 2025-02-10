@@ -17,12 +17,16 @@ type User struct {
     CreatedAt     time.Time `json:"created_at"`
     Password      string    `json:"-"`
     SubTier       int       `json:"sub_tier"`
+    SubId         int       `json:"sub_id"`
+    PaymentId     int       `json:"payment_id"`
     LastLoginAt   time.Time `json:"last_login_at"`
     IsActive      bool      `json:"is_active"`
-    Role          string    `json:"role"`  // admin, authenticated, anon
+    Role          string    `json:"role"`           // admin, authenticated, anon
+    AuthMethod    string    `json:"auth_method"`    // password, oauth
     EmailVerified bool      `json:"email_verified"`
 }
 
+// go package for user agent and ip? would be neat
 type Session struct {
     Id           string    `json:"id"`
     UserID       string    `json:"user_id"`
@@ -68,11 +72,14 @@ func CreateSessionID() (string, error) {
     return sessionStr, nil
 }
 
+// TODO: remove context here, unnecessary
 func InitDB(ctx context.Context, database string) (*sql.DB, error) {
     
-    // also configure a proper connection pool here 
-    // and handle via goroutines?
     var DB *sql.DB
+
+    DB.SetMaxOpenConns(20)
+    DB.SetMaxIdleConns(20)
+
 	var err error
 	DB, err = sql.Open("sqlite3", database)
 	if err != nil {
@@ -81,7 +88,8 @@ func InitDB(ctx context.Context, database string) (*sql.DB, error) {
     if err = DB.Ping(); err != nil {
         return nil, err
     }
-
+    
+    // TODO: put behind first time init flag or sth.
    err = _createUserTable(ctx, DB)
    if err != nil {
        log.Fatal("Error creating user table:", err)
