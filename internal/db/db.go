@@ -6,7 +6,6 @@ import (
     "fmt"
 	"log"
 	"time"
-	"context"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -73,12 +72,9 @@ func CreateSessionID() (string, error) {
 }
 
 // TODO: remove context here, unnecessary
-func InitDB(ctx context.Context, database string) (*sql.DB, error) {
+func InitDB(database string) (*sql.DB, error) {
     
     var DB *sql.DB
-
-    DB.SetMaxOpenConns(20)
-    DB.SetMaxIdleConns(20)
 
 	var err error
 	DB, err = sql.Open("sqlite3", database)
@@ -89,14 +85,17 @@ func InitDB(ctx context.Context, database string) (*sql.DB, error) {
         return nil, err
     }
     
+    DB.SetMaxOpenConns(20)
+    DB.SetMaxIdleConns(20)
+
     // TODO: put behind first time init flag or sth.
-   err = _createUserTable(ctx, DB)
+   err = _createUserTable(DB)
    if err != nil {
        log.Fatal("Error creating user table:", err)
        return nil, err
    }
 
-   err = _createSessionTable(ctx, DB)
+   err = _createSessionTable(DB)
    if err != nil {
        log.Fatal("Error creating session table:", err)
        return nil, err
@@ -104,7 +103,7 @@ func InitDB(ctx context.Context, database string) (*sql.DB, error) {
    return DB, nil
 }
 
-func _createUserTable(ctx context.Context, DB *sql.DB) error {
+func _createUserTable(DB *sql.DB) error {
 	tableSQL := `CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -115,7 +114,7 @@ func _createUserTable(ctx context.Context, DB *sql.DB) error {
         sub_tier SMALLINT DEFAULT 0
 	);`
 
-	tx, err := DB.BeginTx(ctx, nil)
+	tx, err := DB.Begin()
 	if err != nil {
         return err
     }
@@ -134,7 +133,7 @@ func _createUserTable(ctx context.Context, DB *sql.DB) error {
     return tx.Commit()
 }
 
-func _createSessionTable(ctx context.Context, DB *sql.DB) error {
+func _createSessionTable(DB *sql.DB) error {
 	tableSQL := `CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT NOT NULL,
@@ -147,7 +146,7 @@ func _createSessionTable(ctx context.Context, DB *sql.DB) error {
         FOREIGN KEY (user_id) REFERENCES users (user_id)
 	);`
 
-	tx, err := DB.BeginTx(ctx, nil)
+	tx, err := DB.Begin()
 	if err != nil {
         return err
     }
@@ -166,7 +165,7 @@ func _createSessionTable(ctx context.Context, DB *sql.DB) error {
     return tx.Commit()
 }
 
-func InsertUser(ctx context.Context, email string, username string, password string, DB *sql.DB) error {
+func InsertUser(email string, username string, password string, DB *sql.DB) error {
 
 	query := `INSERT INTO users
 	(user_id, email, username, created_at, password, sub_tier) VALUES
@@ -176,12 +175,12 @@ func InsertUser(ctx context.Context, email string, username string, password str
     user_id, err := GenUUID()
     sub_tier := 0
     
-    tx, err := DB.BeginTx(ctx, nil)
+    tx, err := DB.Begin()
     if err != nil {
            return err
     }
 
-    _, err = tx.ExecContext(ctx, query, user_id, email, username, createdAt, password, sub_tier)
+    _, err = tx.Exec(query, user_id, email, username, createdAt, password, sub_tier)
     if err != nil {
         tx.Rollback()
         log.Printf("Error executing transaction: %v", err)
@@ -210,7 +209,7 @@ func GetUserById(user_id string, DB *sql.DB) (*User, error) {
     return &user, nil
 }
 
-func InsertNewSession(ctx context.Context, user_id string, refresh string, sessionStr string, DB *sql.DB) (string, error) {
+func InsertNewSession(user_id string, refresh string, sessionStr string, DB *sql.DB) (string, error) {
     
     now := time.Now()
     expires_at := now.Add(24 * time.Hour)
@@ -219,13 +218,13 @@ func InsertNewSession(ctx context.Context, user_id string, refresh string, sessi
 	(user_id, session_id, refresh_token, login_at, expires_at, last_used_at) VALUES
 	(?, ?, ?, ?, ?, ?)`
 
-    tx, err := DB.BeginTx(ctx, nil)
+    tx, err := DB.Begin()
     if err != nil {
         return "", err
     }
     defer tx.Rollback()
 
-    _, err = tx.ExecContext(ctx, query, user_id, sessionStr, refresh, now, expires_at, now)
+    _, err = tx.Exec(query, user_id, sessionStr, refresh, now, expires_at, now)
     if err != nil {
         log.Printf("Error executing transaction: %v", err)
         return "", err

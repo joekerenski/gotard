@@ -1,9 +1,10 @@
 package middlewares 
 
 import (
+    "gotard/internal/db"
     "gotard/internal/auth"
+    "database/sql"
 	"net/http"
-    "time"
 	"context"
     "log"
 )
@@ -18,35 +19,22 @@ func (rw *responseWriter) WriteHeader(code int) {
     rw.ResponseWriter.WriteHeader(code)
 }
 
-func LoggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func LoggingMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
         wrappedWriter := &responseWriter{w, http.StatusOK}
 
         next.ServeHTTP(wrappedWriter, r)
 
-        log.Printf("[%s] %s %s %d %s",
-            time.Now().Format("2006-01-02 15:04:05"),
+        log.Printf("[REQUEST] %s %s %d %s",
             r.Method,
             r.URL.Path,
             wrappedWriter.statusCode,
             http.StatusText(wrappedWriter.statusCode),
         )
-    })
+    }
 }
 
-// // use slog here instead
-// func LoggingMiddleware(next http.Handler) http.Handler {
-//     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-//         fmt.Printf("Request: %s %s\n", r.Method, r.URL.Path)
-//         next.ServeHTTP(w, r)
-//     })
-// }
-
-// for api auth: take userID from previous middleware and extract userInfo + sessionInfo, + child Context
-func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
-    // check context first: userID in there? 
-    // then pull user & sessin info and fill context
-
+func JWTMiddleware(next http.HandlerFunc) http.HandlerFunc {
     return func(w http.ResponseWriter, r *http.Request) {
         cookie, err := r.Cookie("AuthToken")
         if err != nil {
@@ -54,7 +42,7 @@ func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
             return
         }
 
-        payload, err := auth.VerifyPayload(auth.Secret, cookie.Value)
+        payload, err := auth.VerifyPayload(Secret, cookie.Value)
         if err != nil {
             http.Error(w, "Unauthorized", http.StatusUnauthorized)
             return
@@ -66,3 +54,26 @@ func SessionMiddleware(next http.HandlerFunc) http.HandlerFunc {
         next.ServeHTTP(w, r)
     }
 }
+
+func SessionMiddleware(dbConn *sql.DB, next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        userId, ok := r.Context().Value("userId").(string)
+        if !ok {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+
+        userInfo, err := db.GetUserById(userId, dbConn)
+        if err != nil {
+            http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+            return
+        }
+
+        ctx := context.WithValue(r.Context(), "userInfo", userInfo)
+        r = r.WithContext(ctx)
+
+        next.ServeHTTP(w, r)
+    }
+}
+
+

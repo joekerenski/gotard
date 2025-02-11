@@ -3,7 +3,7 @@ package app
 import (
     "gotard/internal/api"
     "gotard/internal/config"
-    // "gotard/internal/db"
+    "gotard/internal/db"
     "database/sql"
     "path/filepath"
     "log"
@@ -23,7 +23,7 @@ type App struct {
     LoadConfig  bool    // change to path, ignore if empty
     DB      *sql.DB
     MainMux *api.Router
-    Middlewares []func(http.Handler) http.Handler
+    Middlewares []func(http.HandlerFunc) http.HandlerFunc
 }
 
 func NewApp(name string, port string) *App {
@@ -34,7 +34,7 @@ func NewApp(name string, port string) *App {
         LoadConfig:  false,
         DB:      nil,
         MainMux: api.NewRouter("MAIN"),
-        Middlewares: []func(http.Handler) http.Handler{},
+        Middlewares: []func(http.HandlerFunc) http.HandlerFunc{},
     }
 }
 
@@ -42,7 +42,7 @@ func (app *App) Include(router *api.Router, prefix string) {
     app.MainMux.Mux.Handle(prefix+"/", http.StripPrefix(prefix, router))
 }
 
-func (app *App) AddMiddleware(middleware func(http.Handler) http.Handler) {
+func (app *App) AddMiddleware(middleware func(http.HandlerFunc) http.HandlerFunc) {
     app.Middlewares = append(app.Middlewares, middleware)
 }
 
@@ -106,17 +106,17 @@ func (app *App) Run() {
 
     server := &http.Server{
         Addr:       ":" + app.Port,
-        Handler:    app._applyMiddlewares(app.MainMux.Mux),
+        Handler:    app._applyMiddlewares(app.MainMux),
         ErrorLog:     app.MainMux.Logger,
     }
-
-    // app.DB, err := db.InitDB(config.GetEnv("DB_NAME", "users.db"))
-    // if err != nil {
-    //     // TODO: maybe panic here?
-    //     log.Fatalf("Failed to initialize database: %v", err)
-    //     return
-    // }
-    // defer app.DB.Close()
+    
+    var err error
+    app.DB, err = db.InitDB(config.GetEnv("DB_NAME", "users.db"))
+    if err != nil {
+        log.Fatalf("Failed to initialize database: %v", err)
+        return
+    }
+    defer app.DB.Close()
 
     signalChan := make(chan os.Signal, 1)
     signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
