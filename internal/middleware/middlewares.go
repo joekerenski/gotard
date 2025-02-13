@@ -67,12 +67,13 @@ func SessionMiddleware(dbConn *sql.DB) func(http.Handler) http.Handler {
                 return
             }
 
-            userInfo, err := db.GetUserById(userId, dbConn)
+            userInfo, err := db.GetUserByField("user_id", userId, dbConn)
             if err != nil {
                 http.Error(w, "Internal Server Error", http.StatusInternalServerError)
                 return
             }
-
+            
+            log.Printf("Extracted user info: %s", userInfo)
             ctx := context.WithValue(r.Context(), "userInfo", userInfo)
             next.ServeHTTP(w, r.WithContext(ctx))
         })

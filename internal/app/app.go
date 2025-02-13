@@ -92,7 +92,7 @@ func (app *App) ServeStaticFiles(htmlPath, assets string) {
     app.MainMux.Logger.Printf("Serving static assets from %s at /assets/", assets)
 }
 
-func (app *App) Run() {
+func (app *App) Init() {
     if app.LoadConfig {
         _ = config.LoadEnv("./local.env") 
         app.Name = config.GetEnv("APP_NAME", "Retardo")
@@ -106,20 +106,23 @@ func (app *App) Run() {
         app.MainMux.Logger.Printf("Current configuration:\n%s", config)
     }
 
-    server := &http.Server{
-        Addr:       ":" + app.Port,
-        Handler:    app._applyMiddlewares(app.MainMux),
-        ErrorLog:     app.MainMux.Logger,
-    }
-    
     var err error
     app.DB, err = db.InitDB(config.GetEnv("DB_NAME", "users.db"))
     if err != nil {
         log.Fatalf("Failed to initialize database: %v", err)
         return
     }
-    defer app.DB.Close()
 
+    log.Println("App init'ed!")
+}
+
+func (app *App) Run() {
+    server := &http.Server{
+        Addr:       ":" + app.Port,
+        Handler:    app._applyMiddlewares(app.MainMux),
+        ErrorLog:     app.MainMux.Logger,
+    }
+    
     signalChan := make(chan os.Signal, 1)
     signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
 
@@ -127,6 +130,7 @@ func (app *App) Run() {
         sig := <- signalChan
         app.MainMux.Logger.Printf("Received signal: %s. Shutting down. Rip '%s' ... \n", sig, app.Name)
         server.Shutdown(context.Background())
+        app.DB.Close()
     }()
 
     app.MainMux.Logger.Printf("%s is running on port %s\n", app.Name, app.Port)

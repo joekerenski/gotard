@@ -189,9 +189,11 @@ func InsertUser(email string, username string, password string, DB *sql.DB) erro
     return tx.Commit()
 }
 
-func GetUserById(user_id string, DB *sql.DB) (*User, error) {
-
-	stmt, err := DB.Prepare("SELECT user_id, email, username, created_at, password FROM users WHERE user_id = ?")
+func GetUserByField(field_name string, field_value string, DB *sql.DB) (*User, error) {
+    
+    query := fmt.Sprintf("SELECT user_id, email, username, created_at, password FROM users WHERE %s = ?", field_name)
+    
+	stmt, err := DB.Prepare(query)
     if err != nil {
         return nil, err
     }
@@ -199,7 +201,7 @@ func GetUserById(user_id string, DB *sql.DB) (*User, error) {
 
     var user User
 
-    err = stmt.QueryRow(user_id).Scan(&user.Id, &user.Email, &user.UserName, &user.CreatedAt, &user.Password)
+    err = stmt.QueryRow(field_value).Scan(&user.Id, &user.Email, &user.UserName, &user.CreatedAt, &user.Password)
     if err != nil {
         if err == sql.ErrNoRows {
             return nil, nil
