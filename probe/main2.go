@@ -34,9 +34,6 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func main() {
     
-    fileRouter := NewRouter("MAIN")
-     
-
     fileMux := http.NewServeMux()
     apiMux := http.NewServeMux()
 
@@ -63,10 +60,9 @@ func main() {
     })
 
     fileMux.Handle("GET /api/", http.StripPrefix("/api", apiMux))
-    fileRouter.Mux.Handle("GET /api/", http.StripPrefix("/api", apiMux))
 
     log.Printf("We is running on port 8000. We waz kangs.")
-    if err := http.ListenAndServe(":8000", fileRouter); err != nil && err != http.ErrServerClosed {
+    if err := http.ListenAndServe(":8000", fileMux); err != nil && err != http.ErrServerClosed {
         log.Fatalf("Error starting server: %v\n", err)
     }
 }

@@ -1,7 +1,7 @@
 package app
 
 import (
-    "gotard/internal/api"
+    "gotard/internal/router"
     "gotard/internal/config"
     "gotard/internal/db"
     "database/sql"
@@ -22,8 +22,8 @@ type App struct {
     Debug   bool 
     LoadConfig  bool    // change to path, ignore if empty
     DB      *sql.DB
-    MainMux *api.Router
-    Middlewares []func(http.HandlerFunc) http.HandlerFunc
+    MainMux *router.Router
+    Middlewares []func(http.Handler) http.Handler
 }
 
 func NewApp(name string, port string) *App {
@@ -33,28 +33,28 @@ func NewApp(name string, port string) *App {
         Debug:   false,
         LoadConfig:  false,
         DB:      nil,
-        MainMux: api.NewRouter("MAIN"),
-        Middlewares: []func(http.HandlerFunc) http.HandlerFunc{},
+        MainMux: router.NewRouter("MAIN"),
+        Middlewares: []func(http.Handler) http.Handler{},
     }
 }
 
-func (app *App) Include(router *api.Router, prefix string) {
+func (app *App) Include(router *router.Router, prefix string) {
     app.MainMux.Mux.Handle(prefix+"/", http.StripPrefix(prefix, router))
 }
 
-func (app *App) AddMiddleware(middleware func(http.HandlerFunc) http.HandlerFunc) {
+func (app *App) AddMiddleware(middleware func(http.Handler) http.Handler) {
     app.Middlewares = append(app.Middlewares, middleware)
 }
 
 func (app *App) _applyMiddlewares(handler http.Handler) http.Handler {
-    for _, middleware := range app.Middlewares {
-        handler = middleware(handler)
+    for i := len(app.Middlewares) -1; i >= 0; i-- {
+        handler = app.Middlewares[i](handler)
     }
     return handler
 }
 
 func (app *App) ServeStaticFiles(htmlPath, assets string) {
-    app.MainMux.Handle("/", func(w http.ResponseWriter, r *http.Request) {
+    app.MainMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         if r.URL.Path == "/" {
             http.ServeFile(w, r, filepath.Join(htmlPath, "index.html"))
             return
@@ -72,10 +72,12 @@ func (app *App) ServeStaticFiles(htmlPath, assets string) {
                 return err
             }
             urlPath := "/" + strings.TrimSuffix(relPath, ".html")
-            app.MainMux.Handle(urlPath, func(w http.ResponseWriter, r *http.Request) {
-                log.Printf("[%s] %s %s", app.MainMux.Tag, r.Method, r.URL.Path)
+
+            app.MainMux.HandleFunc(urlPath, func(w http.ResponseWriter, r *http.Request) {
+                app.MainMux.Logger.Printf("[%s] %s %s", app.MainMux.Tag, r.Method, r.URL.Path)
                 http.ServeFile(w, r, path)
             })
+
             app.MainMux.Logger.Printf("Registered handler for %s -> %s", urlPath, path)
         } 
         return nil
@@ -86,7 +88,7 @@ func (app *App) ServeStaticFiles(htmlPath, assets string) {
     }
 
     fs := http.FileServer(http.Dir(assets))
-    app.MainMux.Mux.Handle("/assets/", http.StripPrefix("/assets/", fs))
+    app.MainMux.Handle("/assets/", http.StripPrefix("/assets/", fs))
     app.MainMux.Logger.Printf("Serving static assets from %s at /assets/", assets)
 }
 
